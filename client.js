@@ -1,7 +1,7 @@
 import * as THREE from "./node_modules/three/build/three.module.js";
 
-const socket = new WebSocket("ws://localhost:8081");
-
+//const socket = new WebSocket("ws://localhost:8081");
+const socket = new WebSocket(`ws://${window.location.hostname}:8081`);
 
 // Paikallinen tila (oma x, z, kulma)
 let localState = { x: 0, z: 0, angle: 0, velocityX: 0, velocityZ: 0 };

@@ -1,7 +1,27 @@
 import * as THREE from "./node_modules/three/build/three.module.js";
 
-//const socket = new WebSocket("ws://localhost:8081");
-const socket = new WebSocket(`ws://${window.location.hostname}:8081`);
+document.documentElement.style.touchAction = 'none';
+document.documentElement.style.userSelect = 'none';
+document.body.style.userSelect = 'none';
+document.body.style.webkitUserSelect = 'none';
+document.body.style.msUserSelect = 'none';
+document.body.style.mozUserSelect = 'none';
+document.documentElement.style.userSelect = 'none'; // Prevent selection
+document.documentElement.style.height = '100%';
+document.documentElement.style.overflow = 'hidden';
+document.body.style.height = '100%';
+document.body.style.overflow = 'hidden';
+
+window.addEventListener("resize", () => {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+  });
+
+
+//const socket = new WebSocket(`ws://${window.location.hostname}:8081`);
+const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
 
 // Paikallinen tila (oma x, z, kulma)
 let localState = { x: 0, z: 0, angle: 0, velocityX: 0, velocityZ: 0 };
@@ -140,9 +160,75 @@ window.addEventListener("keydown", event => {
 
 
 
+function isMobileDevice() {
+  return 'ontouchstart' in window || navigator.maxTouchPoints;
+}
+
+function createTouchControls() {
+  if (!isMobileDevice()) return;
+
+  const touchContainer = document.createElement('div');
+  touchContainer.style.position = 'absolute';
+  touchContainer.style.bottom = '0';
+  touchContainer.style.width = '100%';
+  touchContainer.style.height = '25%';
+  touchContainer.style.display = 'grid';
+  touchContainer.style.gridTemplateRows = '2fr 1fr';
+  touchContainer.style.gridTemplateColumns = '1fr 1fr 1fr';
+  touchContainer.style.gridTemplateAreas = "'left up right' 'downLeft down downRight'";
+  touchContainer.style.gap = '5px';
+
+  const controls = ['left', 'up', 'right', 'downLeft', 'downRight'];
+  const areas = ['left', 'up', 'right', 'downLeft', 'downRight'];
+  controls.forEach((control, index) => {
+    if (!control) return;
+    const button = document.createElement('div');
+    button.style.background = 'grey';
+    button.style.opacity = '0.5';
+    button.style.touchAction = 'none';
+    button.style.userSelect = 'none';
+    button.dataset.control = control;
+    button.style.gridArea = control;
+    if (control === 'downLeft' || control === 'downRight') {
+      button.style.width = '100%';
+    }
+    button.addEventListener('touchstart', () => inputState[control] = true);
+    button.addEventListener('touchend', () => inputState[control] = false);
+    touchContainer.appendChild(button);
+  });
+
+  document.body.appendChild(touchContainer);
+
+function requestFullScreen() {
+  if (document.documentElement.requestFullscreen) {
+    document.documentElement.requestFullscreen();
+  } else if (document.documentElement.mozRequestFullScreen) {
+    document.documentElement.mozRequestFullScreen();
+  } else if (document.documentElement.webkitRequestFullscreen) {
+    document.documentElement.webkitRequestFullscreen();
+  } else if (document.documentElement.msRequestFullscreen) {
+    document.documentElement.msRequestFullscreen();
+  }
+}
+
+document.addEventListener('click', () => {
+  if (isMobileDevice()) requestFullScreen();
+}, { once: true });
+}
+
+createTouchControls();
+
 function animate() {
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
 }
+
 setInterval(updateMovement, 50);
+
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/service-worker.js')
+      .then(() => console.log("Service Worker Registered"))
+      .catch(error => console.error("Service Worker Registration Failed", error));
+}
+
 animate();

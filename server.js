@@ -4,7 +4,17 @@ const http = require("http");
 const crypto = require("crypto");
 const DEBUG = true;
 const app = express();
-const httpServer = http.createServer(app);
+//const httpServer = http.createServer(app);
+const fs = require("fs");
+const https = require("https");
+
+const options = {
+  key: fs.readFileSync("./certs/localhost-key.pem"),
+  cert: fs.readFileSync("./certs/localhost.pem")
+};
+
+const httpServer = https.createServer(options, app);
+
 const wsServer = new WebSocket.Server({ server: httpServer }); // Attach WebSocket to HTTP server
 
 const clientColors = {}; // Stores color codes for clients
@@ -45,7 +55,7 @@ wsServer.on("connection", ws => {
   players[id] = { x: 0, z: 0, angle: 0 };
 
   ws.on("message", message => {
-    if (DEBUG) console.log(`${clientColors[clientId]}[${clientId}] Received message:\x1b[0m`, message);
+//    if (DEBUG) console.log(`${clientColors[clientId]}[${clientId}] Received message:\x1b[0m`, message);
     try {
       const { x, z, angle } = JSON.parse(message);
       if (players[id]) {

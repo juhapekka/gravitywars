@@ -19,7 +19,6 @@ window.addEventListener("resize", () => {
   });
 
 
-//const socket = new WebSocket(`ws://${window.location.hostname}:8081`);
 const protocol = window.location.protocol === "https:" ? "wss" : "ws";
 const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
 

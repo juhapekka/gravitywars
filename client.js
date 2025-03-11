@@ -1,101 +1,265 @@
 import * as THREE from "./node_modules/three/build/three.module.js";
 
+// ================================
+// MOBILE / TOUCH PREVENTIONS
+// ================================
 document.documentElement.style.touchAction = 'none';
 document.documentElement.style.userSelect = 'none';
 document.body.style.userSelect = 'none';
 document.body.style.webkitUserSelect = 'none';
 document.body.style.msUserSelect = 'none';
 document.body.style.mozUserSelect = 'none';
-document.documentElement.style.userSelect = 'none'; // Prevent selection
 document.documentElement.style.height = '100%';
 document.documentElement.style.overflow = 'hidden';
 document.body.style.height = '100%';
 document.body.style.overflow = 'hidden';
 
-window.addEventListener("resize", () => {
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-  });
-
-
-const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
-
-// Paikallinen tila (oma x, z, kulma)
-let localState = { x: 0, z: 0, angle: 0, velocityX: 0, velocityZ: 0 };
-const inputState = { up: false, left: false, right: false };
-
-// Kaikkiin pelaajiin liittyvät 3D-meshit (avaimena pelaajan id)
-const ships = {};
-
+// ================================
+// THREE BASICS
+// ================================
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(
-  75,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
 camera.position.set(0, 20, 0);
-// suoraan yläpuolelle
-camera.lookAt(0, 0, 0); // Kameran katse pisteeseen (0,0,0)
+camera.lookAt(0, 0, 0);
 
-const renderer = new THREE.WebGLRenderer({ antialias: true, 
+const renderer = new THREE.WebGLRenderer({
+  antialias: true,
   canvas: document.getElementById("gameCanvas")
 });
 renderer.setSize(window.innerWidth, window.innerHeight);
+// Ensure sRGB pipeline
+renderer.outputEncoding = THREE.sRGBEncoding;
 
-// 3) Ladataan alus.png tekstuurina (ylhäältä katsottava sprite)
-const textureLoader = new THREE.TextureLoader();
-const shipTexture = textureLoader.load("alus.png", function(texture) {
-  console.log("Tekstuuri ladattu onnistuneesti");
-}, undefined, function(err) {
-  console.error("Virhe tekstuurin latauksessa", err);
+// On resize, adapt the camera + renderer
+window.addEventListener("resize", () => {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setPixelRatio(window.devicePixelRatio);
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
 });
 
-// Luodaan plane-geometry (2x2) -- säädä kokoa tarpeen mukaan
-const playerGeometry = new THREE.PlaneGeometry(2, 2);
+// ================================
+// WEBSOCKET SETUP
+// ================================
+const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
 
-// Luodaan yksinkertainen MeshBasicMaterial, käytetään alus.png tekstuurina
-// Oletetaan läpinäkyvyys, jos kuvassa on läpinäkyvä tausta.
+// ================================
+// GLOBAL STATES
+// ================================
+let localState = { x: 0, z: 0, angle: 0, velocityX: 0, velocityZ: 0 };
+const inputState = { up: false, left: false, right: false };
+const ships = {}; // Remote ship meshes
 
-const materials = [
-  new THREE.MeshBasicMaterial({
+let shipTexture, cavernTexture;
+let cavernPlane;
+let CAVERN_WIDTH, CAVERN_HEIGHT;
+let shipGeometry, shipMaterial;
+
+// ================================
+// LOADINGMANAGER FOR TEXTURES
+// ================================
+const manager = new THREE.LoadingManager();
+
+manager.onStart = (url, itemsLoaded, itemsTotal) => {
+  console.log(`🟡 Starting load: ${url} (${itemsLoaded}/${itemsTotal})`);
+};
+manager.onProgress = (url, itemsLoaded, itemsTotal) => {
+  console.log(`⏳ Loading: ${url} (${itemsLoaded}/${itemsTotal})`);
+};
+manager.onLoad = () => {
+  console.log("✅ All textures loaded!");
+  finalizeSetup(); // We'll create geometry + call startGame() here
+};
+manager.onError = (url) => {
+  console.error(`❌ Error loading ${url}`);
+};
+
+// The texture loader uses the manager
+const textureLoader = new THREE.TextureLoader(manager);
+
+// ================================
+// INITIATE TEXTURE REQUESTS
+// ================================
+function requestTextures() {
+  console.log("🟡 Requesting textures...");
+  shipTexture = textureLoader.load("alus.png");
+  cavernTexture = textureLoader.load("kenttä1.png");
+}
+
+// ================================
+// FINALIZE AFTER TEXTURES LOADED
+// ================================
+function finalizeSetup() {
+  // Confirm both textures exist
+  if (!cavernTexture || !shipTexture) {
+    console.error("🚨 Missing one or more textures.");
+    return;
+  }
+
+  // sRGB for each texture
+  shipTexture.encoding = THREE.sRGBEncoding;
+  cavernTexture.encoding = THREE.sRGBEncoding;
+
+  // Dimensions for the cavern
+  CAVERN_WIDTH = cavernTexture.image.width;
+  CAVERN_HEIGHT = cavernTexture.image.height;
+
+  console.log(`Cavern texture: ${CAVERN_WIDTH}x${CAVERN_HEIGHT}`);
+
+  createCavern(CAVERN_WIDTH, CAVERN_HEIGHT);
+  createShipGeometry();
+
+  // Now we can start the game logic
+  startGame();
+}
+
+// ================================
+// CREATE CAVERN PLANE
+// ================================
+function createCavern(w, h) {
+    const SCALE_FACTOR = 0.025;
+    const planeW = w * SCALE_FACTOR;
+    const planeH = h * SCALE_FACTOR;
+  
+    const cavernGeometry = new THREE.PlaneGeometry(planeW, planeH);
+    const cavernMaterial = new THREE.MeshBasicMaterial({
+      map: cavernTexture,
+      side: THREE.DoubleSide
+    });
+  
+    cavernPlane = new THREE.Mesh(cavernGeometry, cavernMaterial);
+    cavernPlane.rotation.x = -Math.PI / 2;
+  
+    // Position the plane so its center is at half of the *scaled* size
+    cavernPlane.position.set(planeW / 2, 0, planeH / 2);
+    scene.add(cavernPlane);
+  }
+
+// ================================
+// CREATE SHIP GEOMETRY + MATERIAL
+// ================================
+function createShipGeometry() {
+  shipGeometry = new THREE.PlaneGeometry(2, 2);
+
+  // Optional filtering
+  shipTexture.minFilter = THREE.LinearFilter;
+  shipTexture.magFilter = THREE.LinearFilter;
+
+  shipMaterial = new THREE.MeshBasicMaterial({
     map: shipTexture,
     transparent: true,
     side: THREE.DoubleSide
-  })
-];
-
-
-
-function addShip(playerId) {
-  const shipMesh = new THREE.Mesh(playerGeometry, materials[0]);
-  // Plane on pystyssä oletuksena, käännetään se vaakatasoon
-  shipMesh.rotation.x = -Math.PI / 2;
-  scene.add(shipMesh);
-  ships[playerId] = shipMesh;
+  });
 }
 
-// 5) WebSocket-viestit: serveri lähettää kaikkien pelaajien tilat
+// ================================
+// USER INPUTS
+// ================================
+window.addEventListener("keydown", event => {
+  if (event.key === "ArrowUp") {
+    inputState.up = true;
+  } else if (event.key === "ArrowLeft") {
+    inputState.left = true;
+  } else if (event.key === "ArrowRight") {
+    inputState.right = true;
+  }
+});
+window.addEventListener("keyup", event => {
+  if (event.key === "ArrowUp") {
+    inputState.up = false;
+  } else if (event.key === "ArrowLeft") {
+    inputState.left = false;
+  } else if (event.key === "ArrowRight") {
+    inputState.right = false;
+  }
+});
+
+// ================================
+// UPDATE MOVEMENT
+// ================================
+function updateMovement() {
+  const acceleration = 0.02;
+  const maxSpeed = 1.5;//0.5;
+  const friction = 0.98;
+  const rotationSpeed = 0.1;
+
+  if (!CAVERN_WIDTH || !CAVERN_HEIGHT) return; // Prevent errors
+
+  // Forward
+  if (inputState.up) {
+    localState.velocityX += Math.sin(localState.angle) * acceleration;
+    localState.velocityZ += Math.cos(localState.angle) * acceleration;
+    const speed = Math.sqrt(localState.velocityX ** 2 + localState.velocityZ ** 2);
+    if (speed > maxSpeed) {
+      localState.velocityX *= maxSpeed / speed;
+      localState.velocityZ *= maxSpeed / speed;
+    }
+  }
+  // Turn
+  if (inputState.left) {
+    localState.angle += rotationSpeed;
+  }
+  if (inputState.right) {
+    localState.angle -= rotationSpeed;
+  }
+
+  // Position + friction
+  localState.x += localState.velocityX;
+  localState.z += localState.velocityZ;
+
+  localState.velocityX *= friction;
+  localState.velocityZ *= friction;
+
+  // Clamp within cavern
+  localState.x = Math.max(0, Math.min(CAVERN_WIDTH, localState.x));
+  localState.z = Math.max(0, Math.min(CAVERN_HEIGHT, localState.z));
+
+  // Move camera
+  const SCREEN_SIZE = 20;
+  const halfScreen = SCREEN_SIZE / 2;
+  camera.position.x = Math.max(halfScreen, Math.min(CAVERN_WIDTH - halfScreen, localState.x));
+  camera.position.z = Math.max(halfScreen, Math.min(CAVERN_HEIGHT - halfScreen, localState.z));
+
+  // Send data to server
+  socket.send(JSON.stringify(localState));
+}
+
+// ================================
+// START THE GAME
+// ================================
+function startGame() {
+  console.log("🚀 Starting the game...");
+  setInterval(updateMovement, 50);
+  animate();
+}
+
+// ================================
+// ANIMATION LOOP
+// ================================
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+
+// ================================
+// WEBSOCKET ONMESSAGE
+// ================================
 socket.onmessage = event => {
   const serverPlayers = JSON.parse(event.data);
 
-  // a) Luo/paivita jokainen serverin pelaaja sceneen
+  // Create / Update each player in the scene
   Object.keys(serverPlayers).forEach(playerId => {
     const { x, z, angle } = serverPlayers[playerId];
-
-    // Jos meillä ei ole vielä meshia tälle pelaajalle, luodaan
     if (!ships[playerId]) {
       addShip(playerId);
     }
-    // Päivitetään aluksen sijainti/kulma
-    ships[playerId].position.x = x - localState.x;
-    ships[playerId].position.z = z - localState.z;
+    ships[playerId].position.x = x;
+    ships[playerId].position.z = z;
     ships[playerId].rotation.z = angle;
   });
 
-  // b) Poistetaan scene:stä sellaiset alukset, joita serverillä ei enää ole
+  // Remove any ships no longer on the server
   Object.keys(ships).forEach(playerId => {
     if (!serverPlayers[playerId]) {
       scene.remove(ships[playerId]);
@@ -104,63 +268,23 @@ socket.onmessage = event => {
   });
 };
 
-window.addEventListener("keydown", event => {
-    if (event.key === "ArrowUp") {
-      inputState.up = true;
-    } else if (event.key === "ArrowLeft") {
-      inputState.left = true;
-    } else if (event.key === "ArrowRight") {
-      inputState.right = true;
-    }
-  });
+// ================================
+// ADD SHIP HELPERS
+// ================================
+function addShip(playerId) {
+  // Use shipGeometry + shipMaterial created once textures loaded
+  const shipMesh = new THREE.Mesh(shipGeometry, shipMaterial);
+  shipMesh.rotation.x = -Math.PI / 2;
+  shipMesh.position.y = 0.1;
+  scene.add(shipMesh);
+  ships[playerId] = shipMesh;
+}
 
-  window.addEventListener("keyup", event => {
-    if (event.key === "ArrowUp") {
-      inputState.up = false;
-    } else if (event.key === "ArrowLeft") {
-      inputState.left = false;
-    } else if (event.key === "ArrowRight") {
-      inputState.right = false;
-    }
-  });
-
-  function updateMovement() {
-    const acceleration = 0.02;
-    const maxSpeed = 0.5;
-    const friction = 0.98;
-    const rotationSpeed = 0.1;
-  
-    if (inputState.up) {
-      localState.velocityX -= Math.sin(localState.angle) * acceleration;
-      localState.velocityZ -= Math.cos(localState.angle) * acceleration;
-      
-      const speed = Math.sqrt(localState.velocityX ** 2 + localState.velocityZ ** 2);
-      if (speed > maxSpeed) {
-        localState.velocityX *= maxSpeed / speed;
-        localState.velocityZ *= maxSpeed / speed;
-      }
-    }
-    if (inputState.left) {
-      localState.angle += rotationSpeed;
-    }
-    if (inputState.right) {
-      localState.angle -= rotationSpeed;
-    }
-    
-    localState.x += localState.velocityX;
-    localState.z += localState.velocityZ;
-    
-    localState.velocityX *= friction;
-    localState.velocityZ *= friction;
-    
-    socket.send(JSON.stringify(localState));
-  }
-
-
-
-
+// ================================
+// TOUCH CONTROLS
+// ================================
 function isMobileDevice() {
-  return 'ontouchstart' in window || navigator.maxTouchPoints;
+  return ('ontouchstart' in window || navigator.maxTouchPoints);
 }
 
 function createTouchControls() {
@@ -174,12 +298,12 @@ function createTouchControls() {
   touchContainer.style.display = 'grid';
   touchContainer.style.gridTemplateRows = '2fr 1fr';
   touchContainer.style.gridTemplateColumns = '1fr 1fr 1fr';
-  touchContainer.style.gridTemplateAreas = "'left up right' 'downLeft down downRight'";
+  // Original layout
+  touchContainer.style.gridTemplateAreas = "'left up right' 'downLeft downRight downRight'";
   touchContainer.style.gap = '5px';
 
   const controls = ['left', 'up', 'right', 'downLeft', 'downRight'];
-  const areas = ['left', 'up', 'right', 'downLeft', 'downRight'];
-  controls.forEach((control, index) => {
+  controls.forEach(control => {
     if (!control) return;
     const button = document.createElement('div');
     button.style.background = 'grey';
@@ -188,9 +312,6 @@ function createTouchControls() {
     button.style.userSelect = 'none';
     button.dataset.control = control;
     button.style.gridArea = control;
-    if (control === 'downLeft' || control === 'downRight') {
-      button.style.width = '100%';
-    }
     button.addEventListener('touchstart', () => inputState[control] = true);
     button.addEventListener('touchend', () => inputState[control] = false);
     touchContainer.appendChild(button);
@@ -198,36 +319,36 @@ function createTouchControls() {
 
   document.body.appendChild(touchContainer);
 
-function requestFullScreen() {
-  if (document.documentElement.requestFullscreen) {
-    document.documentElement.requestFullscreen();
-  } else if (document.documentElement.mozRequestFullScreen) {
-    document.documentElement.mozRequestFullScreen();
-  } else if (document.documentElement.webkitRequestFullscreen) {
-    document.documentElement.webkitRequestFullscreen();
-  } else if (document.documentElement.msRequestFullscreen) {
-    document.documentElement.msRequestFullscreen();
+  // Request fullscreen on first tap
+  function requestFullScreen() {
+    if (document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen();
+    } else if (document.documentElement.mozRequestFullScreen) {
+      document.documentElement.mozRequestFullScreen();
+    } else if (document.documentElement.webkitRequestFullscreen) {
+      document.documentElement.webkitRequestFullscreen();
+    } else if (document.documentElement.msRequestFullscreen) {
+      document.documentElement.msRequestFullscreen();
+    }
   }
-}
-
-document.addEventListener('click', () => {
-  if (isMobileDevice()) requestFullScreen();
-}, { once: true });
+  document.addEventListener('click', () => {
+    if (isMobileDevice()) requestFullScreen();
+  }, { once: true });
 }
 
 createTouchControls();
 
-function animate() {
-  requestAnimationFrame(animate);
-  renderer.render(scene, camera);
-}
-
-setInterval(updateMovement, 50);
-
+// ================================
+// REGISTER SERVICE WORKER FOR PWA
+// ================================
 if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/service-worker.js')
-      .then(() => console.log("Service Worker Registered"))
-      .catch(error => console.error("Service Worker Registration Failed", error));
+  navigator.serviceWorker.register('/service-worker.js')
+    .then(() => console.log("Service Worker Registered"))
+    .catch(error => console.error("Service Worker Registration Failed", error));
 }
 
-animate();
+// ================================
+// LAUNCH TEXTURE LOADING
+// ================================
+requestTextures();
+// The finalizeSetup() will be called automatically by manager.onLoad when done

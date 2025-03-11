@@ -19,6 +19,17 @@ const wsServer = new WebSocket.Server({ server: httpServer }); // Attach WebSock
 
 const clientColors = {}; // Stores color codes for clients
 
+// Disable caching for client.js
+app.use((req, res, next) => {
+  if (req.url.endsWith("client.js")) {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    res.setHeader("Surrogate-Control", "no-store");
+  }
+  next();
+});
+
 // Log HTTP requests
 app.use((req, res, next) => {
   const clientId = crypto.randomBytes(3).toString("hex");

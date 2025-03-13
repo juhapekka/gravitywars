@@ -38,6 +38,33 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
 });
 
+
+function fitPlaneWidthPerspective(camera, planeWorldWidth) {
+    // If the camera is overhead, the distance from the plane is about camera.position.y
+    // (assuming plane is at y=0).
+    const dist = camera.position.y;
+  
+    // Half of the plane's width
+    const halfWidth = planeWorldWidth / 2;
+  
+    // For a perspective camera:
+    // horizontalFov = 2 * atan( halfWidth / dist )
+    // but the camera's .fov is verticalFov,
+    // and horizontalFov = 2 * atan( tan(verticalFov/2) * aspect ).
+    //
+    // So we want:
+    // tan(verticalFov/2) * aspect = (halfWidth / dist)
+    // => verticalFov/2 = arctan((halfWidth / dist) / aspect)
+    // => verticalFov = 2 * arctan((halfWidth / (dist * aspect)))
+    
+    const aspect = camera.aspect;
+    const verticalFovRad = 2 * Math.atan( (halfWidth / (dist * aspect)) );
+    const verticalFovDeg = THREE.MathUtils.radToDeg(verticalFovRad);
+  
+    camera.fov = verticalFovDeg;
+    camera.updateProjectionMatrix();
+  }
+  
 // ================================
 // WEBSOCKET SETUP
 // ================================
@@ -47,8 +74,13 @@ const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
 // ================================
 // GLOBAL STATES
 // ================================
-let localState = { x: 0, z: 0, angle: 0, velocityX: 0, velocityZ: 0 };
-const inputState = { up: false, left: false, right: false };
+ // We'll track local input but rely on server coords for final camera
+ let localState = { x: 0, z: 0, angle: 0, velocityX: 0, velocityZ: 0 };
+
+ // We'll store the unique ID given by the server
+ let myId = null;
+ // We'll store serverPlayers globally so we can read them anywhere
+ let serverPlayers = {};const inputState = { up: false, left: false, right: false };
 const ships = {}; // Remote ship meshes
 
 let shipTexture, cavernTexture;
@@ -215,12 +247,6 @@ function updateMovement() {
   localState.x = Math.max(0, Math.min(CAVERN_WIDTH, localState.x));
   localState.z = Math.max(0, Math.min(CAVERN_HEIGHT, localState.z));
 
-  // Move camera
-  const SCREEN_SIZE = 20;
-  const halfScreen = SCREEN_SIZE / 2;
-  camera.position.x = Math.max(halfScreen, Math.min(CAVERN_WIDTH - halfScreen, localState.x));
-  camera.position.z = Math.max(halfScreen, Math.min(CAVERN_HEIGHT - halfScreen, localState.z));
-
   // Send data to server
   socket.send(JSON.stringify(localState));
 }
@@ -238,6 +264,21 @@ function startGame() {
 // ANIMATION LOOP
 // ================================
 function animate() {
+  // We'll reposition the camera based on server coords for local player
+  if (myId && serverPlayers[myId]) {
+    const localServerPos = serverPlayers[myId];
+
+    const SCREEN_SIZE = 20;
+    const halfScreen = SCREEN_SIZE / 2;
+    const camX = Math.max(halfScreen, Math.min(CAVERN_WIDTH - halfScreen, localServerPos.x));
+    const camZ = Math.max(halfScreen, Math.min(CAVERN_HEIGHT - halfScreen, localServerPos.z));
+
+    camera.position.x = camX;
+    camera.position.z = camZ;
+    camera.lookAt(camX, 0, camZ);
+  }
+
+
   requestAnimationFrame(animate);
   renderer.render(scene, camera);
 }
@@ -245,28 +286,39 @@ function animate() {
 // ================================
 // WEBSOCKET ONMESSAGE
 // ================================
-socket.onmessage = event => {
-  const serverPlayers = JSON.parse(event.data);
-
-  // Create / Update each player in the scene
-  Object.keys(serverPlayers).forEach(playerId => {
-    const { x, z, angle } = serverPlayers[playerId];
-    if (!ships[playerId]) {
-      addShip(playerId);
+socket.onmessage = (event) => {
+    // Step A: parse the data
+    const data = JSON.parse(event.data);
+  
+    // Step B: if there's an ID, store it in myId
+    if (data.myId) {
+      myId = data.myId;
+      console.log("🔑 Received localId from server:", myId);
+      return;
     }
-    ships[playerId].position.x = x;
-    ships[playerId].position.z = z;
-    ships[playerId].rotation.z = angle;
-  });
-
-  // Remove any ships no longer on the server
-  Object.keys(ships).forEach(playerId => {
-    if (!serverPlayers[playerId]) {
-      scene.remove(ships[playerId]);
-      delete ships[playerId];
-    }
-  });
-};
+  
+    // Step C: otherwise, 'data' is the dictionary of all players
+    serverPlayers = data;
+  
+    // Step D: same logic as before for creating/updating ships...
+    Object.keys(serverPlayers).forEach(playerId => {
+      const { x, z, angle } = serverPlayers[playerId];
+      if (!ships[playerId]) {
+        addShip(playerId);
+      }
+      ships[playerId].position.x = x;
+      ships[playerId].position.z = z;
+      ships[playerId].rotation.z = angle;
+    });
+  
+    // remove any ships no longer on the server
+    Object.keys(ships).forEach(playerId => {
+      if (!serverPlayers[playerId]) {
+        scene.remove(ships[playerId]);
+        delete ships[playerId];
+      }
+    });
+  };
 
 // ================================
 // ADD SHIP HELPERS

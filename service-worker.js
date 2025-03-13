@@ -1,10 +1,11 @@
+/*
 const CACHE_NAME = "gravitywars-cache-v1";
 const ASSETS = [
   "/",
   "/index.html",
   "/client.js",
   "/alus.png",
-  "/kenttä.png",
+  "/kenttä1.png",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png"
@@ -24,4 +25,12 @@ self.addEventListener("fetch", (event) => {
       return cachedResponse || fetch(event.request);
     })
   );
+});
+*/
+
+// remove the service worker
+self.addEventListener("install", function(event) {
+    self.registration.unregister().then(() => {
+        console.log("✅ Service Worker Unregistered!");
+    });
 });

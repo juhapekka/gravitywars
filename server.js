@@ -56,34 +56,38 @@ setInterval(() => {
 
 // Handle WebSocket connections
 wsServer.on("connection", ws => {
-  const clientId = crypto.randomBytes(3).toString("hex");
-  const colorCode = `\x1b[3${Math.floor(Math.random() * 7) + 1}m`;
-  clientColors[clientId] = colorCode;
-
-  if (DEBUG) console.log(`${colorCode}[${clientId}] New WebSocket connection opened.\x1b[0m`);
-
-  const id = Math.random().toString(36).substr(2, 9);
-  players[id] = { x: 0, z: 0, angle: 0 };
-
-  ws.on("message", message => {
-//    if (DEBUG) console.log(`${clientColors[clientId]}[${clientId}] Received message:\x1b[0m`, message);
-    try {
-      const { x, z, angle } = JSON.parse(message);
-      if (players[id]) {
-        players[id].x = x;
-        players[id].z = z;
-        players[id].angle = angle;
+    const clientId = crypto.randomBytes(3).toString("hex");
+    const colorCode = `\x1b[3${Math.floor(Math.random() * 7) + 1}m`;
+    clientColors[clientId] = colorCode;
+  
+    if (DEBUG) console.log(`${colorCode}[${clientId}] New WebSocket connection opened.\x1b[0m`);
+  
+    // 1) Generate the official ID used by 'players'
+    const id = Math.random().toString(36).substr(2, 9);
+    players[id] = { x: 0, z: 0, angle: 0 };
+  
+    // 2) Send the client its ID
+    ws.send(JSON.stringify({ myId: id }));
+  
+    // 3) Then handle incoming messages
+    ws.on("message", message => {
+      try {
+        const { x, z, angle } = JSON.parse(message);
+        if (players[id]) {
+          players[id].x = x;
+          players[id].z = z;
+          players[id].angle = angle;
+        }
+      } catch (err) {
+        console.log("Error processing message:", err);
       }
-    } catch (err) {
-      console.log("Error processing message:", err);
-    }
+    });
+  
+    ws.on("close", () => {
+      if (DEBUG) console.log(`${colorCode}[${clientId}] WebSocket connection closed.\x1b[0m`);
+      delete players[id];
+    });
   });
-
-  ws.on("close", () => {
-    if (DEBUG) console.log(`${clientColors[clientId]}[${clientId}] WebSocket connection closed.\x1b[0m`);
-    delete players[id];
-  });
-});
 
 // Start HTTP and WebSocket server on port 8081
 httpServer.listen(8081, (err) => {

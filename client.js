@@ -68,7 +68,8 @@ function fitPlaneWidthPerspective(camera, planeWorldWidth) {
 // ================================
 // WEBSOCKET SETUP
 // ================================
-const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+//const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+const protocol = window.location.protocol.includes("https") ? "wss" : "ws";
 const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
 
 // ================================

@@ -38,32 +38,6 @@ window.addEventListener("resize", () => {
   camera.updateProjectionMatrix();
 });
 
-
-function fitPlaneWidthPerspective(camera, planeWorldWidth) {
-    // If the camera is overhead, the distance from the plane is about camera.position.y
-    // (assuming plane is at y=0).
-    const dist = camera.position.y;
-  
-    // Half of the plane's width
-    const halfWidth = planeWorldWidth / 2;
-  
-    // For a perspective camera:
-    // horizontalFov = 2 * atan( halfWidth / dist )
-    // but the camera's .fov is verticalFov,
-    // and horizontalFov = 2 * atan( tan(verticalFov/2) * aspect ).
-    //
-    // So we want:
-    // tan(verticalFov/2) * aspect = (halfWidth / dist)
-    // => verticalFov/2 = arctan((halfWidth / dist) / aspect)
-    // => verticalFov = 2 * arctan((halfWidth / (dist * aspect)))
-    
-    const aspect = camera.aspect;
-    const verticalFovRad = 2 * Math.atan( (halfWidth / (dist * aspect)) );
-    const verticalFovDeg = THREE.MathUtils.radToDeg(verticalFovRad);
-  
-    camera.fov = verticalFovDeg;
-    camera.updateProjectionMatrix();
-  }
   
 // ================================
 // WEBSOCKET SETUP
@@ -151,23 +125,40 @@ function finalizeSetup() {
 // CREATE CAVERN PLANE
 // ================================
 function createCavern(w, h) {
-    const SCALE_FACTOR = 0.025;
-    const planeW = w * SCALE_FACTOR;
-    const planeH = h * SCALE_FACTOR;
-  
+    // Determine the aspect ratio of the cavern texture
+    const screenAspect = window.innerWidth / window.innerHeight;
+    const cavernAspect = w / h;
+
+    let scaleFactor = 0.025; // Default scale
+    let planeW = w * scaleFactor;
+    let planeH = h * scaleFactor;
+
+    // Calculate the width in world units that we need to fill
+    const worldScreenWidth = CAVERN_WIDTH * (window.innerWidth / window.innerHeight);
+
+    // If the cavern's scaled width is smaller than the drawable width, adjust scale
+    if (planeW < worldScreenWidth && worldScreenWidth < w) {
+        scaleFactor *= worldScreenWidth / planeW;
+        planeW = w * scaleFactor;
+        planeH = h * scaleFactor;
+    }
+
+    console.log(`Applying adjusted scale factor: ${scaleFactor}`);
+
+    // Create geometry with updated scale
     const cavernGeometry = new THREE.PlaneGeometry(planeW, planeH);
     const cavernMaterial = new THREE.MeshBasicMaterial({
-      map: cavernTexture,
-      side: THREE.DoubleSide
+        map: cavernTexture,
+        side: THREE.DoubleSide
     });
-  
+
     cavernPlane = new THREE.Mesh(cavernGeometry, cavernMaterial);
     cavernPlane.rotation.x = -Math.PI / 2;
-  
+
     // Position the plane so its center is at half of the *scaled* size
     cavernPlane.position.set(planeW / 2, 0, planeH / 2);
     scene.add(cavernPlane);
-  }
+}
 
 // ================================
 // CREATE SHIP GEOMETRY + MATERIAL

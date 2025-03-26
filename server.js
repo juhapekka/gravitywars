@@ -4,16 +4,30 @@ const http = require("http");
 const crypto = require("crypto");
 const DEBUG = true;
 const app = express();
-//const httpServer = http.createServer(app);
 const fs = require("fs");
 const https = require("https");
 
-const options = {
-  key: fs.readFileSync("./certs/localhost-key.pem"),
-  cert: fs.readFileSync("./certs/localhost.pem")
-};
+const keyPath = "./certs/localhost-key.pem";
+const certPath = "./certs/localhost.pem";
+let httpServer;
+const useHttps = fs.existsSync(keyPath) && fs.existsSync(certPath);
 
-const httpServer = https.createServer(options, app);
+if (useHttps) {
+  try {
+    const options = {
+      key: fs.readFileSync(keyPath),
+      cert: fs.readFileSync(certPath)
+    };
+    httpServer = https.createServer(options, app);
+    console.log("🔒 HTTPS enabled");
+  } catch (err) {
+    console.error("❌ Error reading SSL certificates:", err);
+    process.exit(1); // Exit if HTTPS was expected but failed
+  }
+} else {
+  console.warn("⚠️ No certificates found, falling back to HTTP");
+  httpServer = http.createServer(app);
+}
 
 const wsServer = new WebSocket.Server({ server: httpServer }); // Attach WebSocket to HTTP server
 
@@ -89,12 +103,10 @@ wsServer.on("connection", ws => {
     });
   });
 
-// Start HTTP and WebSocket server on port 8081
 httpServer.listen(8081, (err) => {
-    if (err) {
-      console.error("Failed to start server on port 8081:", err);
-      process.exit(1);
-    }
-    console.log("HTTP and WebSocket server running on port 8081");
-  });
-
+  if (err) {
+    console.error("Failed to start server on port 8081:", err);
+    process.exit(1);
+  }
+  console.log(`🌍 Server running on ${httpServer instanceof https.Server ? "HTTPS" : "HTTP"} port 8081`);
+});

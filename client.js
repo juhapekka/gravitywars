@@ -42,7 +42,8 @@ window.addEventListener("resize", () => {
 // ================================
 // WEBSOCKET SETUP
 // ================================
-const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+//const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+const protocol = window.location.protocol.includes("https") ? "wss" : "ws";
 const socket = new WebSocket(`${protocol}://${window.location.hostname}:8081`);
 
 // ================================
@@ -239,8 +240,12 @@ function updateMovement() {
   localState.z = Math.max(0, Math.min(CAVERN_HEIGHT, localState.z));
 
   // Send data to server
-  socket.send(JSON.stringify(localState));
-}
+    // Only send if WebSocket is open
+    if (socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify(localState));
+    } else {
+        console.warn("⚠️ WebSocket not ready, skipping send");
+}}
 
 // ================================
 // START THE GAME
